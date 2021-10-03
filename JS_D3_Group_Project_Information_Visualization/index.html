@@ -1,0 +1,787 @@
+<html>
+
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+		<!--D3.js library v.5-->
+		<script src="https://d3js.org/d3.v5.js"></script>
+		<link rel="shortcut icon" type="image/x-icon" href="docs/images/favicon.ico" />
+		<link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" integrity="sha512-xodZBNTC5n17Xt2atTPuE1HxjVMSvLVW9ocqUKLsCC5CXdbqCmblAshOMAS6/keqq/sMZMZ19scR4PsZChSR7A==" crossorigin=""/>
+		<script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js" integrity="sha512-XQoYMqMTK8LvdxXYG3nZ448hOEQiglfqkJs1NOQV44cWnUrBc8PkAOcXy20w0vlaXaVUearIOBhiXZ5V3ynxwA==" crossorigin=""></script>
+		<script src="https://d3js.org/d3.v5.min.js"></script>
+		<script src="https://unpkg.com/d3-simple-slider"></script>
+		<link rel="stylesheet" href="style.css">
+			
+		<title> Practical 2 </title>
+	</head>
+
+	<body>
+		<h2>Covid progression in the US from 2020/01 to 2021/03</h2>
+		<div id = "layout">
+            <div class="container">
+				<div>		
+					<p>This dashboard aims to explore the progression of covid in the US from 2020/01 to 2021/03. It supports the function of : </p>
+					<ul>
+						<li>Analysis</li>
+						<li>Search</li>
+						<li>Query</li>
+					</ul>
+					<p>You can filter the data in two dimensions:</p>
+					<ul>
+						<li>Temporal : Scroll the time bar </li>
+						<li>Spatial : Click the state on the map</li>
+					</ul>
+					<p style="font-weight: bold;">Data Description:</p>
+					<p>Original data is based on the series of data files that the New York Times has released with cumulative counts of coronavirus cases in the United States, at the state and county level, over time. 
+						Four attributes are selected to describe the disease progression : state, time, cumulative new cases and death cases .
+					</p>
+					<br>
+					<span>Data Source : </span><a href=" https://www.kaggle.com/fireballbyedimyrnmom/us-counties-covid-19-dataset">Kaggle</a>
+				</div>
+				<div class="row align-items-center">
+					<div class="col-sm-2"><p id="value-time"></p></div>
+					<div class="col-sm"><div id="slider-time"></div></div>
+				</div>
+				<div id='map'></div>
+			</div>
+            <div class = "container">
+				<p style="font-weight: bold;">Instructions :  </p>
+				<ul style=" font-size: 20px;">
+					<li style="font-size: 18px;">Click the state on the map to check the monthly new cases and deaths in detail</li>
+				</ul>
+                <div id="my_dataviz"></div>
+                <div id = "deathLine"></div>
+				<div>
+                    <form id="dimensions">
+                        <input  type='radio' value="cases" name="mode" checked>Cases</input>
+                        <input type='radio' value="deaths" name="mode">Deaths</input>
+                    </form>
+                    <div id="bar_chart"></div>
+                </div>
+            </div>
+		</div>
+		<style>
+			div.bar_tooltip{
+     			position: absolute;
+     			text-align: center;
+     			color: #000000;
+				background-color: white;
+     			pointer-events: none;
+     			font-size: 14px;
+				width: 180px;
+				}
+		</style>
+		
+		<script type="text/javascript" src="us-states.js"></script>
+		<script type="text/javascript">
+
+			var region = ""; 	
+			
+			var map = L.map('map').setView([37.8, -96], 4);
+			var mapboxAccessToken = 'pk.eyJ1Ijoic2hpcnVvMTk5OCIsImEiOiJja24zaGJqcmwxNjYyMm9scmR6am8wdHptIn0.kERyIHtwkDSm2sw0Sgay2Q';
+			var dataPath = 'us_covid_data.csv';
+		
+			L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token=' + mapboxAccessToken, {
+				maxZoom: 6,
+                minZoom:2,
+				attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, ' +
+					'Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
+				id: 'mapbox/light-v9',
+				tileSize: 512,
+				zoomOffset: -1
+			}).addTo(map);
+
+			L.geoJson(statesData).addTo(map);
+			
+			var info = L.control();
+
+			info.onAdd = function (map) {
+				this._div = L.DomUtil.create('div', 'info'); // create a div with a class "info"
+				// this.update();
+				this.update();
+
+				return this._div;
+			};
+
+			// method that we will use to update the control based on feature properties passed
+			info.update = function (props) {
+				this._div.innerHTML = '<h4>Cumulative Covid Cases</h4>' +  (props ?
+				'<b>' + props.name + '</b><br />' + props.value + '</sup>'
+				: 'Hover over a state');
+
+				return props ?props.name : "default"	
+			};
+
+			info.addTo(map);
+
+
+            var margin = {top: 10, right: 30, bottom: 30, left: 80},
+            width = 600 - margin.left - margin.right,
+            height = 300 - margin.top - margin.bottom;
+
+            // Monthly new case
+            var svg = d3.select("#my_dataviz")
+            .append("svg")
+				.attr("width", width + margin.left + margin.right)
+                .attr("height", 320)
+                .attr("class","newCase")
+            .append("g")
+                .attr("transform",
+                    "translate(" + margin.left + "," + margin.top + ")");
+
+            // Monthly dead cases 
+            var svg2 = d3.select("#deathLine")
+            .append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", 320)
+                .attr("class","deathCase")
+            .append("g")
+                .attr("transform",
+                    "translate(" + margin.left + "," + margin.top + ")");
+			
+			var converter = function(d){
+	    		var timeDate = d.date;
+	    		var datum = timeDate.split("-");
+	    		return{
+		    		date: new Date(datum[0], datum[1]-1), 
+            		state: d.state,
+		    		cases: parseInt(d.cases_diff),
+		    		deaths: parseInt(d.death_diff),
+
+	   	 		}
+    		}
+
+			d3.csv(dataPath, converter)
+				.then(function(data){
+					var nestedData = d3.nest()
+										.key(function(d){
+											return d.state;
+										})
+										.key(function(d){
+											return d.date;
+										})
+										.entries(data);
+
+					var nestedData2 = d3.nest()
+						.key(function(d){
+							return d.state
+						})
+						.entries(data)
+
+					console.log(nestedData2)
+					var allGroups = []
+					nestedData2.forEach(function(d){
+						allGroups.push(d.key)
+					})
+					console.log(allGroups)
+
+					var nestedData3 = d3.nest()
+										.key(function(d){
+											return d.date;
+										})
+										.entries(data);
+										var us_cumulative_cases =  0;
+
+					var timeArray = [];
+					var time_cases =[]
+                    var us_cumulative_cases =  0;
+					var us_cumulative_deaths =  0;
+                    nestedData3.forEach(function(d){
+						new_date = new Date(d.key);
+						new_date.setMonth(new_date.getMonth() + 1 );
+						temp =[];
+						timeArray.push(new_date);
+                        for(var n = 0; n < d.values.length; n++){
+                            us_cumulative_cases += d.values[n].cases;
+							if(isNaN(d.values[n].deaths)){
+								us_cumulative_deaths += 0;
+							}else{
+								us_cumulative_deaths +=  d.values[n].deaths;
+							}
+                        }
+						temp.push(d3.timeFormat("%m/%Y")(new Date(d.key)));
+                        temp.push(us_cumulative_cases);
+						temp.push(us_cumulative_deaths);
+						
+						time_cases.push(temp);
+                    });
+
+					console.log(time_cases);
+					var margin = 80;
+
+                    var yScale_bar=d3.scaleLinear().range([300-margin,0]);
+                    var xScale_bar = d3.scaleBand().range([margin,600]).padding(0.2);
+					
+					yScale_bar.domain([0, us_cumulative_cases * 1.2]);
+                    xScale_bar.domain(time_cases.map(function(d){
+						return d[0];
+					}));
+
+
+					var default_date = new Date("2021/04/01");
+					addData(default_date);
+
+        			var sliderTime = d3
+            			.sliderBottom()
+            			.min(d3.min(timeArray))
+            			.max(d3.max(timeArray))
+            			.step(1000*60*60*24*30.5)
+            			.width(600)
+            			.tickFormat(d3.timeFormat('01/%m/%Y'))
+            			.tickValues(timeArray)
+            			.fill('#2196f3')
+						.default(default_date)
+						.handle(
+        					d3.symbol()
+          						.type(d3.symbolCircle)
+          						.size(300)
+  						)
+            			.on('onchange', val => {
+            				d3.select('p#value-time').text('By ' + d3.timeFormat('01/%m/%Y')(val));
+							if(geojson){
+								map.removeLayer(geojson);
+							}
+							addData(val);
+           				});
+					
+        			var gTime = d3
+            			.select('div#slider-time')
+            			.append('svg')
+            			.attr('width', 1000)
+            			.attr('height', 100)
+            			.append('g')
+            			.attr('transform', 'translate(30,30)')
+
+        			gTime.call(sliderTime)
+						.selectAll('text')
+						.style('text-anchor', 'end')
+						.attr('dx', '-0.8em')
+						.attr('dy', '-0.8em')
+						.attr('transform', "rotate(-45)");;
+
+        			d3.select('p#value-time').text('By ' + d3.timeFormat('01/%m/%Y')(sliderTime.value()));
+
+			
+					function addData(time){
+					
+						var new_time = new Date(time);
+						new_time.setMonth(new_time.getMonth()-1);
+						
+						var time_f = d3.timeFormat("%m/%Y")(new_time);
+
+						nestedData.forEach(function(d){
+							var cumulativeCases = 0;
+							var state = d.key;
+							(d.values).forEach(function(e){
+								var date_f = d3.timeFormat("%m/%Y")(new Date(e.key));
+
+								var cases = e.values[0].cases;
+								cumulativeCases += cases;
+
+								if(time_f==date_f){
+									for(var n = 0; n < statesData.features.length; n++){
+										// properties name gets the states name
+										var jsonState = statesData.features[n].properties.name;
+									
+										if(state == jsonState){
+ 		 									//Copy the data value into the JSON
+  											// basically creating a new value column in JSON data
+											statesData.features[n].properties.value = cumulativeCases;
+											//console.log(statesData.features[n].properties.value);
+	  										break;
+										}
+									}
+								}
+							});						
+						});
+						geojson = L.geoJson(statesData,{style:style, onEachFeature: onEachFeature}).addTo(map);	
+					}
+
+					d3.select("#selectButton")
+						.selectAll('myOptions')
+							.data(allGroups)
+						.enter()
+							.append('option')
+						.text(function (d) { return d; }) // text showed in the menu
+						.attr("value", function (d) { return d; }) // corresponding value returned by the button
+					
+					// Monthly death line graph
+                    var xScale = d3.scaleTime()
+                        // .domain(timeExtent)
+                        .range([0,width]);
+
+                    var yScale = d3.scaleLinear()
+                        // .domain(newCases)
+                        .range([height,0])
+                    
+                    var x_axis = d3.axisBottom(xScale)
+                    var y_axis = d3.axisLeft(yScale)
+
+                    //Add X axis
+                    svg.append("g")
+                        .attr("class","x axis")
+                        .attr("transform","translate(0," + height + ")")
+                        .call(x_axis.tickFormat(d3.timeFormat("%m/%Y")))
+                        .selectAll("text")
+                            .attr("transform","rotate(-45)")
+                            .attr("dx","-10pt")
+
+                    // Add Y axis
+                    svg.append("g")
+                        .attr("class","y axis")
+                        .call(y_axis)
+                    // add line
+                    var line = svg
+                        // .append("g")
+                        .append("path")
+                            .datum(data.filter(function(d){return d.state === allGroups[0]}))
+                            .attr("d",d3.line()
+                                .x(function(d){return xScale(d.date)})
+                                .y(function(d){return yScale(+d.cases)})
+                            )
+                            .attr("stroke", "#FFA500")
+                            .style("fill","none")
+                            .style("stroke-width",4)
+                        
+                    svg.selectAll("circle")
+                        .data(data.filter(function(d){return d.state === allGroups[0]}))
+                        .enter()
+                        .append("circle")
+                            .attr("cx",function(d){ // circle x position
+                                return xScale(d.date)
+                            })
+                            .attr("cy",function(d){ // circle y position 
+                                return yScale(+d.cases)
+                            })
+                            .attr("r",5) // circle radius
+                            .on("mouseover",function(d){
+                                    d3.select(".newCase")
+                                        .append("text")
+                                        .attr("class","tooltip")
+                                        .text(d.cases)
+                                        .attr("x", xScale(d.date)+50)
+                                        .attr("y",yScale(+d.cases) + 5)
+                                })
+                            .on("mouseout",function(){
+                                d3.selectAll(".tooltip")
+                                    .remove()
+                            
+                                })
+							.attr("stroke", "#FFA500")
+							
+                    // update the line graph
+                    function update(selectedGroup){
+						svg.selectAll(".title").remove();
+
+                        var dataFilter = data.filter(function(d){return d.state === selectedGroup})
+
+                        xScale.domain(d3.extent(dataFilter,function(d){return d.date}))
+                        svg.selectAll(".x.axis").transition()
+                        .duration(1000)
+                        .call(x_axis)
+						.selectAll("text")
+                        .attr("transform","rotate(-45)")
+						.attr("dx","-15pt")
+
+						
+                        yScale.domain([0,d3.max(dataFilter,function(d){return parseInt(d.cases)})*1.2])
+                        svg.selectAll(".y.axis").transition()
+                        .duration(1000)
+                        .call(y_axis)
+
+                        line
+                            .datum(dataFilter)
+                            .transition()
+                            .duration(1000)
+                            .attr("d",d3.line()
+                                .x(function(d){return xScale(d.date)})
+                                .y(function(d){return yScale(+d.cases)})
+                                )
+
+
+                        svg.selectAll("circle")
+                            .data(dataFilter)
+                                .transition()
+                                .duration(1000)
+                                .attr("cx",function(d){ // circle x position
+                                    return xScale(d.date)
+                                })
+                                .attr("cy",function(d){ // circle y position 
+                                    return yScale(+d.cases)
+                                })
+                                .attr("r",5) // circle radius
+                                .style("fill","#FFA500") 
+						svg.append("text")      
+							.attr("x",width/2 )
+							.attr("y", 10)
+							.attr("class","title")
+							.style("text-anchor", "middle")
+							.text(`Monthly New Cases - ${selectedGroup}`);  
+                    }
+
+					////////////////Related to the monthly death 
+
+					var xScaleDeath = d3.scaleLinear()
+						// .domain(d3.extent(data,function(d){return d.date}))
+						.range([0,width]);
+
+					var yScaleDeath = d3.scaleLinear()
+						// .domain([0,d3.max(data,function(d){return +d.death_diff})])
+						.range([height,0])
+
+					var x_axisDeath = d3.axisBottom(xScaleDeath)
+					var y_axisDeath = d3.axisLeft(yScaleDeath)
+
+					//Add X axis
+					svg2.append("g")
+						.attr("class","x axis")
+						.attr("transform","translate(0," + height + ")")
+						.call(x_axisDeath.tickFormat(d3.timeFormat("%m/%Y")))
+						.selectAll("text")
+							.attr("transform","rotate(-45)")
+							.attr("dx","-10pt")
+
+					// Add Y axis
+					svg2.append("g")
+						.attr("class","y axis")
+						.call(y_axisDeath)
+					// add line
+					var line2 = svg2
+						.append("path")
+							.datum(data.filter(function(d){return d.state === allGroups[0]}))
+							.attr("d",d3.line()
+								.x(function(d){return xScaleDeath(d.date)})
+								.y(function(d){return yScaleDeath(+d.deaths)})
+
+							)
+							.attr("stroke", '#778899')
+							.style("fill","none")
+							.style("stroke-width",4)
+
+					svg2.selectAll("circle")
+						.data(data.filter(function(d){return d.state === allGroups[0]}))
+						.enter()
+						.append("circle")
+							.attr("cx",function(d){ // circle x position
+								return xScaleDeath(d.date)
+							})
+							.attr("cy",function(d){ // circle y position 
+								return yScaleDeath(+d.deaths)
+							})
+							.attr("r",5) // circle radius
+							.on("mouseover",function(d){
+									d3.select(".deathCase")
+										.append("text")
+										.attr("class","tooltip")
+										.text(d.deaths)
+										.attr("x", xScaleDeath(d.date) + 50)
+										.attr("y", yScaleDeath(+d.deaths) + 5)
+								})
+							.on("mouseout",function(){
+								d3.selectAll(".tooltip")
+									.remove()
+							})
+
+					function updateDeath(selectedGroup){
+						svg2.selectAll(".title").remove();
+
+						var dataFilter = data.filter(function(d){return d.state === selectedGroup})
+
+						xScaleDeath.domain(d3.extent(dataFilter,function(d){return d.date}))
+						svg2.selectAll(".x.axis").transition()
+						.duration(1000)
+						.call(x_axisDeath)
+						.selectAll("text")
+                        .attr("transform","rotate(-45)")
+						.attr("dx","-15pt")
+						
+
+						yScaleDeath.domain([0,d3.max(dataFilter,function(d){return +d.deaths})*1.2])
+						svg2.selectAll(".y.axis").transition()
+						.duration(1000)
+						.call(y_axisDeath)
+						
+						line2
+							.datum(dataFilter)
+							.transition()
+							.duration(1000)
+							.attr("d",d3.line()
+								.x(function(d){return xScaleDeath(d.date)})
+								.y(function(d){return yScaleDeath(+d.deaths)})
+								)
+
+
+						svg2.selectAll("circle")
+							.data(dataFilter)
+								.transition()
+								.duration(1000)
+								.attr("cx",function(d){ // circle x position
+									return xScaleDeath(d.date)
+								})
+								.attr("cy",function(d){ // circle y position 
+									return yScaleDeath(+d.deaths)
+								})
+								.attr("r",5) // circle radius
+								.style("fill",'#778899')
+
+						
+						svg2.append("text")      // text label for the x axis
+							.attr("x",width/2 )
+							.attr("y",10)
+							.attr("class","title")
+							.style("text-anchor", "middle")
+							.text(`Monthly Deaths - ${selectedGroup}`);
+					}
+
+                    update("Arizona")
+                    updateDeath("Arizona")
+
+				//////////////Bar Chart/////////////
+
+				var mySVG = d3.select("#bar_chart")
+				.append("div")
+					.attr("id", "myDiv")		//width, height, margins are specified in styleFile.css
+						.append("svg")
+						.attr("id", "mySVG")
+						.attr("width", "100%")		
+						.attr("height", "100%");
+				
+						mySVG.append('g')
+					.attr("transform", 'translate(0,'+(300-margin)+')')
+					.attr("class","x axis")
+					.call(d3.axisBottom(xScale_bar))
+					.selectAll('text')
+						.style('text-anchor', 'end')
+						.attr('dx', '-0.5em')
+						// .attr('dy', '-0.8em')
+						.attr('transform', "rotate(-45)");
+
+				mySVG.append('g')
+					.attr("transform", "translate(" + margin + ",0)")
+					.attr("class","y axis")
+					.call(d3.axisLeft(yScale_bar));
+
+				mySVG.append('g')
+					.append("text")
+					.attr("class","bar_text");
+
+				changeSVG(1);
+
+					d3.selectAll("input").on("change", function(){
+						if(this.value == 'cases'){
+							yScale_bar.domain([0, us_cumulative_cases * 1.2]);
+							mySVG.selectAll(".y.axis").transition()
+            					.duration(1000)
+            					.call(d3.axisLeft(yScale_bar))
+							
+							mySVG.selectAll('.added_text').remove()	
+							changeSVG(1);
+							
+						}else{
+							yScale_bar.domain([0, us_cumulative_deaths * 1.2]);
+							mySVG.selectAll(".y.axis").transition()
+            					.duration(1000)
+            					.call(d3.axisLeft(yScale_bar))
+							mySVG.selectAll('.added_text').remove()
+							changeSVG(2);
+						}
+					});
+					
+					var div = d3.select("#bar_chart").append("div")
+     						.attr("class", "bar_tooltip")
+     						.style("opacity", 0);
+
+					function changeSVG(i){
+
+						mySVG.selectAll("g.bar_text")
+      						.data(time_cases)
+                        	.enter()
+							.append("text")
+							.transition()
+							.duration('1000')
+							.text(function(d){
+								return d[i];
+							})
+							.attr("font-size" , "10px")
+							.attr("x", function(d){ 
+								return xScale_bar(d[0]) +12;
+							})
+                            .attr("y",function(d){
+								return yScale_bar(+d[i])-6;
+							})
+							.attr("text-anchor", "middle")
+							.attr("class", "added_text")
+
+						var bars = mySVG.selectAll("rect")
+						.data(time_cases);
+
+						bars
+                        .enter()
+                        .append("rect")
+						.merge(bars)
+                        .attr("class", "bar")
+                        .attr("x", function(d){
+							return xScale_bar(d[0]);
+						})
+                        .attr("width", xScale_bar.bandwidth())
+                        .attr("y", function(d){
+							return yScale_bar(d[i]);
+						})
+                        .attr("height",function(d){
+							return 300-margin-yScale_bar(d[i]);
+						})
+						.attr("fill", function(){
+							if(i == 1){
+								return "#FFA500";
+							}else{
+								return "#778899";
+							}})
+						.on("mouseover",function(d){
+							var growth_rate = 'NaN';
+							index = time_cases.indexOf(d);
+							var previous_count = 0;
+							if(index!=0){
+								previous_count = time_cases[index-1][i]
+								growth_rate = (d[i]-previous_count)/previous_count;
+								growth_rate_ = growth_rate.toFixed(3);
+							} 
+							d3.select(this).transition()
+               					.duration('50')
+               					.attr('opacity', '.75')
+								.attr('stroke', '#313639')
+								.attr('stroke-width','2px')
+							div.transition()
+               					.duration(50)
+               					.style("opacity", 0.75);
+							if(i == 1){
+								div.html("cumulative cases:" + d[i]+ "<br>"+ " increased cases: "+ (d[i]-previous_count) + "<br>"  + "case growth rate: " + growth_rate_)
+							   .style('left', d3.event.pageX + 'px')
+        						.style('top', d3.event.pageY - 28 + 'px'); 
+							}else{
+			   					div.html("cumulative deaths:" + d[i]+ "<br>"+ "death rate: " + (d[i]/d[1]).toFixed(3) + "<br>" + " increased deaths: "+ (d[i]-previous_count) + "<br>"  + "death growth rate: " + growth_rate_)
+							   .style('left', d3.event.pageX + 'px')
+        						.style('top', d3.event.pageY - 28 + 'px')
+							}
+							})
+                			.on("mouseout",function(){
+								d3.select(this).transition()
+               						.duration('50')
+               						.attr('opacity', '1')
+									.attr('stroke', 'none')
+									.attr('stroke-width', 'none');
+			   					div.transition()
+              						.duration('50')
+               						.style("opacity", 0) 
+                			})
+
+					}
+					mySVG.append("text")      
+							.attr("x",320)
+							.attr("y",12)
+							.style("text-anchor", "middle")
+							.text("National Cumulative Covid Cases/Deaths");  
+
+                    //////////////////////////////////////
+					map.attributionControl.addAttribution('Population data &copy; <a href="http://census.gov/">US Census Bureau</a>');			
+       		
+					function getColor(d){
+						if(d!=0){
+							return d>2000000?'#2F0026':
+								d>1000000 ?'#5B0026':
+								d>500000 ?'#A00026':
+								d>100000 ?'#DF3126':
+								d>50000 ?'#FD8000':
+								d>10000  ?'#FDAD3C':
+								d>1000  ?'#FED24C':
+								d>100  ?'#FFE976':
+								'#FFFDAA';
+								}
+					}
+
+					function style(feature, time){
+						return {
+							fillColor: getColor(feature.properties.value),
+							weight:2,
+							opacity:1,
+							color:'white',
+							dashArray:'3',
+							fillOpacity:0.7
+						};
+					}
+
+					//Create a control with a legend
+					var legend = L.control({position: 'bottomright'});
+
+					legend.onAdd = function (map) {	
+						var div = L.DomUtil.create('div', 'info legend'),
+						grades = [0, 100, 1000, 10000, 50000, 100000, 500000, 1000000, 20000000],
+						labels = [],from,to;
+
+						// loop through our density intervals and generate a label with a colored square for each interval
+						for (var i = 0; i < grades.length; i++) {
+							from = grades[i];
+							to = grades[i + 1];
+
+							labels.push('<i style="background:' + getColor(from + 1) + '"></i> ' +
+								from + (to ? '&ndash;' + to : '+'));
+						}
+
+						div.innerHTML = labels.join('<br>');
+						return div;
+					};
+
+					legend.addTo(map);
+
+					//an event listener for layer mouseover event
+					function highlightFeature(e) {
+						var layer = e.target;
+						layer.setStyle({
+							weight: 5,
+							color: '#666',
+							dashArray: '',
+							fillOpacity: 0.7
+						});
+
+						if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) {
+							layer.bringToFront();
+						}
+						//update the control
+						info.update(layer.feature.properties);
+					}
+
+
+					//define what happens when mouseout
+					function resetHighlight(e) {
+						geojson.resetStyle(e.target);
+					}
+
+					var geojson;
+
+					function resetHighlight(e) {
+						geojson.resetStyle(e.target);
+						//update the control
+						info.update();
+					}
+
+					function updateLines(e) {
+						region = e.target.feature.properties.name
+						update(region)
+						updateDeath(region)
+
+					}
+
+					//add the listeners on our state layers
+					function onEachFeature(feature, layer) {
+						layer.on({
+						mouseover: highlightFeature,
+						mouseout: resetHighlight,
+						click: updateLines
+						});
+					}
+			});
+		</script>
+		
+	</body>
+
+</html>
